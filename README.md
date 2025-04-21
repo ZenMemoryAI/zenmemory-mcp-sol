@@ -20,5 +20,5 @@ Decentralized AI Memory Infrastructure — powered by MCP and Solana Agent Kit.
 1. **Clone & install**
    ```bash
    git clone https://github.com/ZenMemoryAI/zenmemory-mcp-sol.git
-   cd zenmemory-mcp-server
+   cd zenmemory-mcp-sol
    npm install
