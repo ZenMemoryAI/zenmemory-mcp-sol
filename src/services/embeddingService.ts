@@ -25,11 +25,13 @@ export async function embedText(text: string): Promise<number[]> {
 /**
  * storeEmbedding
  * Updates the 'memories' table with the embedding vector for a given memoryId.
- * NOTE: your 'memories' table must have an 'embedding vector' column (pgvector).
+ * NOTE: your 'memories' table must have an 'embedding' column of type vector (pgvector).
  */
 export async function storeEmbedding(memoryId: string, vector: number[]): Promise<void> {
   await pool.query(
-    `UPDATE memories SET embedding = $2 WHERE id = $1`,
+    `UPDATE memories
+        SET embedding = $2
+      WHERE id = $1`,
     [memoryId, vector]
   );
 }
@@ -40,7 +42,9 @@ export async function storeEmbedding(memoryId: string, vector: number[]): Promis
  */
 export async function fetchEmbedding(memoryId: string): Promise<number[]> {
   const { rows } = await pool.query<{ embedding: number[] }>(
-    `SELECT embedding FROM memories WHERE id = $1`,
+    `SELECT embedding
+       FROM memories
+      WHERE id = $1`,
     [memoryId]
   );
   if (rows.length === 0) {
