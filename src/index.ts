@@ -16,6 +16,13 @@ import {
   fetchMemoryById as dbFetchMemoryById,
 } from './services/memoryService';
 
+// Import embedding & search functions
+import {
+  embedText,
+  storeEmbedding,
+  semanticSearch,
+} from './services/embeddingService';
+
 dotenv.config();
 
 const app = express();
@@ -30,26 +37,29 @@ app.use(express.json());
  * POST /memory
  * - Validate input using MCP tool
  * - Persist memory into Postgres via memoryService
- * - Optionally record the memory on Solana blockchain
+ * - Generate and store embedding vector
+ * - Optionally record on Solana blockchain
  */
 app.post('/memory', async (req, res) => {
   const { userId, content, emotion, tags } = req.body;
 
-  // Return error if required fields are missing
   if (!userId || !content) {
     return res.status(400).json({ error: 'userId and content required' });
   }
 
-  // Validate content length with MCP
   if (enableMCP && !mcp.call('validateMemory', content)) {
     return res.status(400).json({ error: 'Content failed validation' });
   }
 
   try {
-    // Save memory to the database
+    // 1) Save memory to the database
     const memory: MemoryBlock = await dbCreateMemory(userId, content, emotion, tags);
 
-    // Record memory on Solana if enabled
+    // 2) Generate embedding and store in DB
+    const vector = await embedText(content);
+    await storeEmbedding(memory.id, vector);
+
+    // 3) Record on Solana if enabled
     if (enableSolana) {
       try {
         await recordMemoryOnChain(memory.id, memory.userId, memory.timestamp);
@@ -60,7 +70,32 @@ app.post('/memory', async (req, res) => {
 
     return res.status(201).json({ message: 'Memory stored', memory });
   } catch (err) {
-    console.error('Database error on createMemory', err);
+    console.error('Error in POST /memory', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
+ * POST /memory/search
+ * - Accepts { userId, query, limit }
+ * - Generates embedding for query text
+ * - Performs semantic search to find top-N similar memories
+ */
+app.post('/memory/search', async (req, res) => {
+  const { userId, query, limit = 5 } = req.body;
+
+  if (!userId || !query) {
+    return res.status(400).json({ error: 'userId and query required' });
+  }
+
+  try {
+    // Embed the query
+    const qVec = await embedText(query);
+    // Run semantic search
+    const results = await semanticSearch(userId, qVec, limit);
+    return res.json(results);
+  } catch (err) {
+    console.error('Error in POST /memory/search', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -73,14 +108,13 @@ app.get('/memory/:id', async (req, res) => {
   const { id } = req.params;
 
   try {
-    // Fetch memory from the database
     const memory = await dbFetchMemoryById(id);
     if (!memory) {
       return res.status(404).json({ error: 'Memory not found' });
     }
     return res.json(memory);
   } catch (err) {
-    console.error('Database error on fetchMemoryById', err);
+    console.error('Error in GET /memory/:id', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -94,18 +128,16 @@ app.get('/user/:userId/memories', async (req, res) => {
   const { userId } = req.params;
 
   try {
-    // Fetch off-chain memories from the database
     const offchain = await dbFetchUserMemories(userId);
 
     if (enableSolana) {
-      // Fetch on-chain memory contexts
       const onchain = await fetchMemoryContexts(userId);
       return res.json({ offchain, onchain });
     }
 
     return res.json({ offchain });
   } catch (err) {
-    console.error('Database error on fetchUserMemories', err);
+    console.error('Error in GET /user/:userId/memories', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -114,4 +146,3 @@ app.get('/user/:userId/memories', async (req, res) => {
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 });
-
